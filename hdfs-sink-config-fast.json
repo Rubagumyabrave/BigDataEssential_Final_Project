@@ -1,0 +1,15 @@
+{
+  "connector.class": "io.confluent.connect.hdfs.HdfsSinkConnector",
+  "tasks.max": "1",
+  "topics": "flights",
+  "hdfs.url": "hdfs://namenode:9000",
+  "flush.size": "1",
+  "topics.dir": "/flights",
+  "logs.dir": "/logs",
+  "format.class": "io.confluent.connect.hdfs.json.JsonFormat",
+  "partitioner.class": "io.confluent.connect.storage.partitioner.DefaultPartitioner",
+  "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "key.converter.schemas.enable": "false",
+  "value.converter.schemas.enable": "false"
+}

@@ -1,0 +1,18 @@
+{
+  "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
+  "tasks.max": "1",
+  "topics": "flights",
+  "connection.url": "jdbc:postgresql://postgres:5432/flights_db",
+  "connection.user": "flightuser",
+  "connection.password": "flightpass",
+  "table.name.format": "flights",
+  "insert.mode": "upsert",
+  "pk.mode": "record_value",
+  "pk.fields": "flight_id",
+  "auto.create": "false",
+  "auto.evolve": "false",
+  "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+  "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "value.converter.schemas.enable": "true",
+  "consumer.override.auto.offset.reset": "latest"
+}

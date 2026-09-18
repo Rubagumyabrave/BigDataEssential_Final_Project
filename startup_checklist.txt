@@ -1,0 +1,160 @@
+FUEL PIPELINE - STARTUP CHECKLIST
+==================================
+Run this every time you come back to work on the project.
+Nothing here needs to be created again - just started and confirmed.
+
+
+1. START DOCKER DESKTOP
+------------------------
+Open Docker Desktop. Wait for the whale icon in the system tray to stop
+animating before doing anything else.
+
+
+2. CHECK WHAT'S RUNNING
+------------------------
+docker ps -a
+
+Look at the STATUS column. Anything showing "Exited" needs starting.
+
+
+3. START ALL CONTAINERS
+------------------------
+docker start kafka1 kafka2 kafka3 namenode datanode kafka-connect postgres adminer
+
+
+4. CONFIRM KAFKA CONNECT IS UP
+--------------------------------
+Kafka Connect is always the slowest to come back. Give it 60-90 seconds,
+then run:
+
+curl http://localhost:8083/connectors
+
+Should list: ["hdfs-flights-sink","postgres-flights-sink"]
+
+If it returns "Empty reply from server", wait longer and try again.
+
+
+5. CONFIRM BOTH CONNECTORS ARE ACTUALLY RUNNING
+--------------------------------------------------
+curl http://localhost:8083/connectors/hdfs-flights-sink/status
+curl http://localhost:8083/connectors/postgres-flights-sink/status
+
+Both should show "state":"RUNNING" for the connector AND the task.
+If either shows "FAILED", that needs troubleshooting separately -
+don't assume it's fine just because the container is up.
+
+
+6. CONFIRM THE TOPIC STILL HAS THE RIGHT SHAPE
+--------------------------------------------------
+docker exec -it kafka1 /opt/kafka/bin/kafka-topics.sh --describe --topic flights --bootstrap-server localhost:19092
+
+Should show: PartitionCount: 3  ReplicationFactor: 2
+
+
+7. START DJANGO
+-----------------
+In its own terminal window, left open the whole time:
+
+cd C:\Users\hp\BigDataEssentials\Final_exam\data_api
+myenv\Scripts\activate
+python manage.py runserver
+
+Leave this window running. Closing it stops Django entirely.
+
+
+8. CONFIRM DJANGO IS REACHABLE
+---------------------------------
+In a different terminal:
+
+curl http://localhost:8000/api/flights/
+
+Should return a JSON list, not a connection error.
+
+
+9. RELOAD THE KDE IN JUPYTER
+-------------------------------
+The fitted KDE and helper functions do NOT survive a kernel restart.
+Run this in a fresh cell before generating anything:
+
+import dill
+with open("kde_models_3d.pkl", "rb") as f:
+    kde_models_3d = dill.load(f)
+
+def generate_flight_inputs(fleet, max_attempts=50, rng=None):
+    f = kde_models_3d[fleet]
+    kde = f["kde"]
+    rng = rng or np.random.default_rng()
+    for _ in range(max_attempts):
+        sample = kde.resample(1, seed=rng)
+        distance = float(np.exp(sample[0, 0]))
+        weight = float(np.exp(sample[1, 0]))
+        tailwind = float(sample[2, 0])
+        if (f["dist_min"] <= distance <= f["dist_max"] and
+                f["weight_min"] <= weight <= f["weight_max"] and
+                f["tailwind_min"] <= tailwind <= f["tailwind_max"]):
+            return distance, weight, tailwind
+    distance = min(max(distance, f["dist_min"]), f["dist_max"])
+    weight = min(max(weight, f["weight_min"]), f["weight_max"])
+    tailwind = min(max(tailwind, f["tailwind_min"]), f["tailwind_max"])
+    return distance, weight, tailwind
+
+
+10. RUN THE GENERATION LOOP
+------------------------------
+This is the only step that needs re-running every single time -
+it's what actually produces new data. Stop with the Jupyter interrupt
+button (the square icon) or Ctrl+C.
+
+import time
+import uuid
+import random
+import requests
+from datetime import datetime
+
+count = 0
+try:
+    while True:
+        rng = np.random.default_rng()
+        fleet = random.choice(list(kde_models_3d.keys()))
+        distance, weight, tailwind = generate_flight_inputs(fleet, rng=rng)
+
+        record = {
+            "flight_id": str(uuid.uuid4()),
+            "fleet": fleet,
+            "great_circle_distance_nm": round(distance, 1),
+            "gross_weight_at_liftoff_kg": round(weight, 0),
+            "max_tailwind_during_takeoff_kt": round(tailwind, 1),
+            "generated_at": datetime.utcnow().isoformat(),
+        }
+
+        response = requests.post("http://localhost:8000/api/flights/", json=record)
+        count += 1
+        print(f"{count}: {response.status_code}  {fleet}  {distance:.0f} NM  {weight:.0f} kg  {tailwind:.1f} kt")
+        time.sleep(2)
+except KeyboardInterrupt:
+    print(f"\nStopped after {count} flights")
+
+
+CHECKING THE RESULTS
+======================
+
+Django (browser):
+http://localhost:8000/api/flights/
+
+Kafka (terminal, live view of new messages):
+docker exec -it kafka1 /opt/kafka/bin/kafka-console-consumer.sh --topic flights --bootstrap-server localhost:19092
+
+HDFS (terminal):
+docker exec -it namenode hdfs dfs -ls -R /flights/flights
+
+HDFS (browser):
+http://localhost:9870  ->  Utilities  ->  Browse the file system  ->  /flights/flights
+(does not auto-refresh - reload the page manually)
+
+PostgreSQL (terminal):
+docker exec -it postgres psql -U flightuser -d flights_db -c "SELECT * FROM flights;"
+
+PostgreSQL (browser, Adminer):
+http://localhost:8080
+System: PostgreSQL | Server: postgres | Username: flightuser | Password: flightpass | Database: flights_db
+-> click "flights" -> click "Select data"
